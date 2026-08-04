@@ -8,8 +8,8 @@ typedef struct ay_config {
     DWORD real_app_id;   // [Main] RealAppId
     DWORD fake_app_id;   // [Main] FakeAppId (default 480)
     char language[64];   // [Main] Language (default "english")
-    char name[128];      // [Main] Name (EOS display name; empty = steam persona)
     BOOL unlock_all_dlc; // [Main] UnlockAllDLC
+    BOOL steam_native;   // [Main] SteamNative (loader-only install, no EOS)
     BOOL device_id_auth; // [EOS] DeviceIdAuth (default true)
     BOOL loaded;
 } ay_config;

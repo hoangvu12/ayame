@@ -30,7 +30,7 @@ echo  --- [2/2] winmm.dll (loader + steam hooks) ---
 echo.
 if exist src\generated\winmm_fwd_stub.asm (
     ml64 /nologo /c /Fo"build\winmm_fwd.obj" src\generated\winmm_fwd_stub.asm || exit /b 1
-    cl /nologo /LD /O2 /MT /W3 /Isrc src\loader\winmm_proxy.c src\common\ay_log.c src\common\ay_config.c src\common\ay_hook.c build\winmm_fwd.obj /Fe"dist\winmm.dll" /Fobuild\ /link /DEF:src\generated\winmm_exports.def /MACHINE:X64 /SUBSYSTEM:WINDOWS || exit /b 1
+    cl /nologo /LD /O2 /MT /W3 /Isrc src\loader\winmm_proxy.c src\common\ay_log.c src\common\ay_config.c src\common\ay_hook.c build\winmm_fwd.obj /Fe"dist\winmm.dll" /Fobuild\ /link user32.lib advapi32.lib /DEF:src\generated\winmm_exports.def /MACHINE:X64 /SUBSYSTEM:WINDOWS || exit /b 1
 ) else (
     echo [i] winmm forwarder not generated yet - run genexports on system32\winmm.dll
 )

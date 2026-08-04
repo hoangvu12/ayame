@@ -6,6 +6,7 @@
 // for the game's steam_api64.dll so it can patch the Steam entry points that
 // an online fix needs (restart suppression + appid environment).
 #include <windows.h>
+#include <tlhelp32.h>
 #include <stdio.h>
 
 #include "../common/ay_config.h"
@@ -55,16 +56,17 @@ static int __cdecl hk_RestartAppIfNecessary(unsigned int appid) {
 }
 
 static void apply_steam_env(const ay_config *cfg) {
-    wchar_t buf[32];
+    wchar_t buf[32], obuf[32];
     _snwprintf_s(buf, 32, _TRUNCATE, L"%lu", cfg->fake_app_id);
     SetEnvironmentVariableW(L"SteamAppId", buf);
     SetEnvironmentVariableW(L"SteamGameId", buf);
+    obuf[0] = L'\0';
     if (cfg->real_app_id) {
-        _snwprintf_s(buf, 32, _TRUNCATE, L"%lu", cfg->real_app_id);
+        _snwprintf_s(obuf, 32, _TRUNCATE, L"%lu", cfg->real_app_id);
         // Overlay/screenshots tag the real game for display purposes.
-        SetEnvironmentVariableW(L"SteamOverlayGameId", buf);
+        SetEnvironmentVariableW(L"SteamOverlayGameId", obuf);
     }
-    ay_log("steam: env SteamAppId=%ls SteamOverlayGameId set", buf);
+    ay_log("steam: env SteamAppId=%ls SteamOverlayGameId=%ls", buf, obuf);
 }
 
 static void install_steam_hooks(void) {
@@ -75,10 +77,67 @@ static void install_steam_hooks(void) {
     ay_hook_export(sa, "SteamAPI_RestartAppIfNecessary", hk_RestartAppIfNecessary);
 }
 
+static BOOL steam_client_running(void) {
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap == INVALID_HANDLE_VALUE) return FALSE;
+    PROCESSENTRY32W pe = {sizeof(pe)};
+    BOOL found = FALSE;
+    if (Process32FirstW(snap, &pe)) {
+        do {
+            if (_wcsicmp(pe.szExeFile, L"steam.exe") == 0) {
+                found = TRUE;
+                break;
+            }
+        } while (Process32NextW(snap, &pe));
+    }
+    CloseHandle(snap);
+    return found;
+}
+
+// Steam normally injects the overlay into games it launched itself; for a
+// standalone launch we do it manually (parity with OnlineFix's overlay).
+static void inject_steam_overlay(void) {
+    if (GetModuleHandleW(L"GameOverlayRenderer64.dll")) {
+        ay_log("overlay: renderer already loaded");
+        return;
+    }
+    if (!steam_client_running()) {
+        ay_log("overlay: Steam client not running, skipping");
+        return;
+    }
+
+    wchar_t steam_path[MAX_PATH];
+    DWORD cb = sizeof(steam_path);
+    LSTATUS st = RegGetValueW(HKEY_CURRENT_USER, L"Software\\Valve\\Steam",
+                              L"SteamPath", RRF_RT_REG_SZ, NULL, steam_path, &cb);
+    if (st != ERROR_SUCCESS) {
+        ay_log("overlay: Steam install not found in registry (err %ld)", st);
+        return;
+    }
+    for (wchar_t *p = steam_path; *p; p++) {
+        if (*p == L'/') *p = L'\\';
+    }
+    wcscat_s(steam_path, MAX_PATH, L"\\GameOverlayRenderer64.dll");
+    HMODULE ov = LoadLibraryW(steam_path);
+    if (!ov) {
+        ay_log("overlay: failed to load %ws (err %lu)", steam_path, GetLastError());
+        return;
+    }
+    ay_log("overlay: GameOverlayRenderer64.dll loaded (shift+tab may now work)");
+}
+
 static DWORD WINAPI steam_watch_thread(LPVOID param) {
     (void)param;
     const ay_config *cfg = ay_config_get(g_self);
     apply_steam_env(cfg);
+
+    // Load the overlay renderer as early as possible: it must hook the
+    // renderer's device-creation calls before the game creates its D3D
+    // device, otherwise the overlay has no surface to draw into. Steam's
+    // own injection happens later (session recognition) and misses it.
+    if (cfg->steam_native) {
+        inject_steam_overlay();
+    }
 
     // Wait for the game to load its Steam API DLL, then patch it.
     for (int i = 0; i < 600; i++) { // up to ~60s

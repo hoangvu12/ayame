@@ -2,7 +2,7 @@
 //
 // Usage:
 //
-//	ayame install <gameDir> [--appid N] [--name S] [--language S] [--unlock-dlc] [--force-ini]
+//	ayame install <gameDir> [--appid N] [--language S] [--unlock-dlc] [--force-ini]
 //	ayame uninstall <gameDir>
 //	ayame status <gameDir>
 package main
@@ -50,7 +50,6 @@ Commands:
   install <gameDir>     Apply the fix (renames the original EOS SDK to .of,
                         drops the proxy DLLs and ayame.ini)
     --appid N           The game's real Steam AppID (required for the ini)
-    --name S            EOS display name (default: Steam persona name)
     --language S        Game language (default: english)
     --unlock-dlc        Answer "owned" to all DLC checks
     --force-ini         Overwrite an existing ayame.ini
@@ -63,7 +62,6 @@ Commands:
 func cmdInstall(args []string) {
 	fs := flag.NewFlagSet("install", flag.ExitOnError)
 	appid := fs.Uint("appid", 0, "real Steam AppID")
-	name := fs.String("name", "", "EOS display name")
 	language := fs.String("language", "", "game language")
 	unlock := fs.Bool("unlock-dlc", false, "unlock all DLC checks")
 	forceIni := fs.Bool("force-ini", false, "overwrite ayame.ini")
@@ -76,7 +74,6 @@ func cmdInstall(args []string) {
 
 	rep, err := install.Install(fs.Arg(0), install.Options{
 		AppID:        uint32(*appid),
-		Name:         *name,
 		Language:     *language,
 		UnlockAllDLC: *unlock,
 		ForceIni:     *forceIni,
@@ -86,7 +83,7 @@ func cmdInstall(args []string) {
 		os.Exit(1)
 	}
 
-	fmt.Println("ayame installed:")
+	fmt.Println("ayame installed:", rep.Mode)
 	for _, p := range rep.PatchedEos {
 		fmt.Printf("  eos proxy : %s\n", p)
 	}
@@ -96,7 +93,14 @@ func cmdInstall(args []string) {
 	if rep.IniPath != "" {
 		fmt.Printf("  config    : %s\n", rep.IniPath)
 	}
-	fmt.Println("\nKeep Steam running, launch the game, and host/join as usual.")
+	if rep.Mode == "steam-native" {
+		fmt.Println("\nNo EOS SDK found - steam-native mode: the game keeps the real")
+		fmt.Println("steam_api and rides your running Steam client under the mask")
+		fmt.Println("appid (FakeAppId, Spacewar 480 by default). Keep Steam running")
+		fmt.Println("and logged in, launch the game, host/join as usual.")
+	} else {
+		fmt.Println("\nKeep Steam running, launch the game, and host/join as usual.")
+	}
 }
 
 func cmdUninstall(args []string) {
@@ -133,11 +137,14 @@ func cmdStatus(args []string) {
 	fmt.Printf("eos originals : %d (.of backups)\n", len(backups))
 	fmt.Printf("eos dlls      : %d\n", len(proxies))
 	fmt.Printf("winmm loaders : %d\n", len(winmms))
-	if len(backups) > 0 && len(backups) == len(proxies) {
+	switch {
+	case len(backups) > 0 && len(backups) == len(proxies):
 		fmt.Println("status        : INSTALLED")
-	} else if len(backups) == 0 {
+	case len(backups) == 0 && len(winmms) > 0:
+		fmt.Println("status        : INSTALLED (steam-native: no EOS SDK, loader only)")
+	case len(backups) == 0:
 		fmt.Println("status        : not installed")
-	} else {
+	default:
 		fmt.Println("status        : partially installed - inspect manually")
 	}
 }

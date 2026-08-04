@@ -130,19 +130,51 @@ This is also why every reference project avoids Goldberg: OnlineFix hooks the
 real steam_api64.dll, LumaCore/ReFix-proxy use the real Steam client. None of
 them place a network hooking emulator in the process.
 
+## Steam-native games (no EOS SDK)
+
+Games whose multiplayer is pure Steamworks were v1's out-of-scope case —
+until the discovery that no emulation is needed at all:
+
+- The real `steam_api64.dll` initializes fine from an externally launched
+  process when `SteamAppId=480` (Spacewar — launchable by every account):
+  `tools/steamprobe.c` shows `SteamAPI_Init(480) = 1` with the real account
+  id, against the running client. The only blocker is
+  `SteamAPI_RestartAppIfNecessary` returning true, which the winmm loader
+  already suppresses.
+- So steam-native mode is just the existing loader with no DLL swap: the
+  depot's original `steam_api64.dll` stays, the loader env-masks the appid
+  and kills the restart check. All lobby/P2P runs through the user's real
+  Steam client under appid 480 (identity = real persona, friends list real,
+  overlay works).
+- Overlay parity with OnlineFix: the loader preload
+  `GameOverlayRenderer64.dll` from the Steam install (winmm watch thread,
+  before the game creates its D3D device — Steam's own late injection misses
+  the device hooks).
+
+Requirements: real Steam installed, running, logged in. Players meet only
+other masked sessions (other ayame/OnlineFix users), never legit buyers on
+the real appid. Installer behavior: EOS DLLs present → eos mode; none →
+steam-native mode (winmm + ini with `[Main] SteamNative=true`).
+
 ## Verified in the wild
 
 - Big Walk (1478500, Unity IL2CPP, EOS 1.19, PlayEveryWare plugin):
   lua-dl depot download → Goldberg → ayame install → launch:
   `EOS Connect login succeeded`, Stomp messaging connected,
-  `Current Auth Status: LoggedIn`, display name from ayame.ini.
+  `Current Auth Status: LoggedIn`. Display name follows OnlineFix behavior:
+  the game's own name if it passes one, else the Steam persona name.
+  (2026-08-05: hosted a lobby live — `Lobby created successfully`, lobby
+  socket to api.epicgames.dev established, zero EOS errors.)
 - MECCHA CHAMELEON layout: install/uninstall round-trip restores the
   original SDK byte-exact.
+- Pummel Party (880940, Unity/Mono, Steamworks.NET, Steam-native): lua-dl
+  depot download → `ayame install` (steam-native auto-detected) → launch with
+  real Steam running: Steam shows "in-game: Spacewar", in-game name = real
+  Steam persona, lobby created, friend invites work, Shift+Tab overlay opens.
+  No file of the game was modified except adding winmm.dll + ayame.ini.
 
-## Out of scope for v1
+## Out of scope (v1)
 
-- Games whose multiplayer is Steam-native (Steam matchmaking, not EOS) — those
-  need the heavier OnlineFix64-style Steam emulation.
 - 32-bit games (all reference targets are x64).
 - Anti-cheat titles (EAC/BattlEye will reject the device identity).
 

@@ -188,15 +188,12 @@ static void on_create_device_id_done(const EOS_Connect_CreateDeviceIdCallbackInf
     real_login(ctx->handle, &opts, ctx, on_login_done);
 }
 
+// OnlineFix behavior: the game's own DisplayName wins (handled by the caller);
+// otherwise the Steam persona name, otherwise a fixed fallback.
 static void choose_display_name(char *out, size_t out_len, const EOS_Connect_LoginOptions *opts) {
-    const ay_config *cfg = ay_config_get(g_self);
-    if (cfg->name[0]) {
-        strncpy_s(out, out_len, cfg->name, _TRUNCATE);
-        return;
-    }
     steam_persona_name(out, out_len);
     if (!out[0]) {
-        strncpy_s(out, out_len, "Player", _TRUNCATE);
+        strncpy_s(out, out_len, "Unknown Player", _TRUNCATE);
     }
     (void)opts;
 }

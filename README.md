@@ -1,14 +1,22 @@
 # ayame
 
-An open-source **online-fix alternative** for Windows Steam games that use
-Epic Online Services (EOS) for multiplayer.
+An open-source **online-fix alternative** for Windows Steam games — both
+EOS-based multiplayer and Steam-native (Steamworks) multiplayer.
 
-Many Steam games gate their multiplayer behind a valid Steam auth ticket
-handed to EOS (`EOS_ECT_STEAM_SESSION_TICKET`). ayame drops a proxy in place
-of the game's EOS SDK and swaps that login to a **DeviceID access token**
-(`EOS_ECT_DEVICEID_ACCESS_TOKEN`), which Epic issues to any client without
-needing a Steam ticket. Matchmaking, lobbies, and P2P still run through
-Epic's real servers.
+**EOS games:** many Steam games gate their multiplayer behind a valid Steam
+auth ticket handed to EOS (`EOS_ECT_STEAM_SESSION_TICKET`). ayame drops a
+proxy in place of the game's EOS SDK and swaps that login to a **DeviceID
+access token** (`EOS_ECT_DEVICEID_ACCESS_TOKEN`), which Epic issues to any
+client without needing a Steam ticket. Matchmaking, lobbies, and P2P still
+run through Epic's real servers.
+
+**Steam-native games:** games whose multiplayer is pure Steamworks (lobbies/P2P
+against Valve's backend). ayame detects the missing EOS SDK and switches to
+steam-native mode: the game keeps its real `steam_api64.dll` and the winmm
+loader masks the appid to Spacewar (480), so `SteamAPI_Init` succeeds against
+your running Steam client and matchmaking runs through it — real persona name,
+friends list, and overlay included. Requires the real Steam client, running
+and logged in.
 
 This is the same technique used by `OnlineFix`, `eos-proxy`, and `ReFix`,
 rebuilt clean-room and driven by a single Go installer.
@@ -88,11 +96,12 @@ dist\ayame.exe install "C:\path\to\game" --appid <RealAppId>
 
 This finds every `EOSSDK-Win64-Shipping.dll`, renames the original to `.of`,
 drops the proxy, places `winmm.dll` next to the game executable, and writes
-`ayame.ini`. Options:
+`ayame.ini`. If no EOS SDK is found, it installs in **steam-native mode**
+(winmm loader + ini only, `[Main] SteamNative=true`): the game keeps its real
+steam_api and rides your running Steam client under the mask appid. Options:
 
 ```
 --appid N        the game's real Steam AppID
---name S         EOS display name (default: Steam persona)
 --language S     game language (default: english)
 --unlock-dlc     answer "owned" to DLC checks
 --force-ini      overwrite an existing ayame.ini

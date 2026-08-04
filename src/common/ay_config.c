@@ -54,8 +54,8 @@ const ay_config *ay_config_get(HMODULE self) {
     g_cfg.real_app_id = 0;
     g_cfg.fake_app_id = 480;
     strcpy_s(g_cfg.language, sizeof(g_cfg.language), "english");
-    g_cfg.name[0] = '\0';
     g_cfg.unlock_all_dlc = FALSE;
+    g_cfg.steam_native = FALSE;
     g_cfg.device_id_auth = TRUE;
     g_cfg.loaded = FALSE;
 
@@ -68,12 +68,12 @@ const ay_config *ay_config_get(HMODULE self) {
         g_cfg.fake_app_id = (DWORD)_wtoi(buf);
         if (g_cfg.fake_app_id == 0) g_cfg.fake_app_id = 480;
         get_str(path, L"Main", L"Language", L"english", g_cfg.language, sizeof(g_cfg.language));
-        get_str(path, L"Main", L"Name", L"", g_cfg.name, sizeof(g_cfg.name));
         g_cfg.unlock_all_dlc = get_bool(path, L"Main", L"UnlockAllDLC", FALSE);
+        g_cfg.steam_native = get_bool(path, L"Main", L"SteamNative", FALSE);
         g_cfg.device_id_auth = get_bool(path, L"EOS", L"DeviceIdAuth", TRUE);
         g_cfg.loaded = TRUE;
-        ay_log("config: %ws (RealAppId=%lu FakeAppId=%lu Name=\"%s\" DeviceIdAuth=%d)",
-               path, g_cfg.real_app_id, g_cfg.fake_app_id, g_cfg.name, g_cfg.device_id_auth);
+        ay_log("config: %ws (RealAppId=%lu FakeAppId=%lu SteamNative=%d DeviceIdAuth=%d)",
+               path, g_cfg.real_app_id, g_cfg.fake_app_id, g_cfg.steam_native, g_cfg.device_id_auth);
     } else {
         ay_log("config: ayame.ini not found, using defaults");
     }

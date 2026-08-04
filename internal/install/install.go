@@ -36,7 +36,6 @@ var skipDirs = map[string]bool{
 
 type Options struct {
 	AppID        uint32
-	Name         string
 	Language     string
 	UnlockAllDLC bool
 	ForceIni     bool
@@ -46,6 +45,10 @@ type Report struct {
 	PatchedEos []string
 	WinmmDir   string
 	IniPath    string
+	// Mode is "eos" (EOS proxy + loader) or "steam-native" (loader only:
+	// the game keeps the real steam_api and rides the real Steam client
+	// under FakeAppId, Spacewar by default).
+	Mode string
 }
 
 // Install applies the fix to gameDir.
@@ -60,12 +63,17 @@ func Install(gameDir string, opts Options) (*Report, error) {
 
 	rep := &Report{}
 
+	rep.Mode = "eos"
 	eosTargets, err := findEosDlls(gameDir)
 	if err != nil {
 		return nil, err
 	}
+	// No EOS SDK: fall back to steam-native mode — the game keeps the real
+	// steam_api.dll and the winmm loader masks the appid so SteamAPI_Init
+	// succeeds against the running Steam client (Spacewar by default).
+	// The EOS proxy is simply skipped.
 	if len(eosTargets) == 0 {
-		return nil, fmt.Errorf("no %s found under %s (EOS game not detected)", EosName, gameDir)
+		rep.Mode = "steam-native"
 	}
 	for _, target := range eosTargets {
 		if err := installEosProxy(target); err != nil {
@@ -85,7 +93,7 @@ func Install(gameDir string, opts Options) (*Report, error) {
 		rep.WinmmDir = exeDir
 
 		iniPath := filepath.Join(exeDir, IniName)
-		if err := writeIni(iniPath, opts); err != nil {
+		if err := writeIni(iniPath, opts, rep.Mode == "steam-native"); err != nil {
 			return nil, err
 		}
 		rep.IniPath = iniPath
@@ -172,7 +180,7 @@ func installWinmm(exeDir string) error {
 	return os.WriteFile(dst, payloads.Winmm, 0o644)
 }
 
-func writeIni(path string, opts Options) error {
+func writeIni(path string, opts Options, steamNative bool) error {
 	if _, err := os.Stat(path); err == nil && !opts.ForceIni {
 		return nil // keep the user's existing config
 	}
@@ -192,9 +200,15 @@ func writeIni(path string, opts Options) error {
 	fmt.Fprintf(&b, "RealAppId=%d\r\n", opts.AppID)
 	b.WriteString("FakeAppId=480\r\n")
 	fmt.Fprintf(&b, "Language=%s\r\n", lang)
-	fmt.Fprintf(&b, "Name=%s\r\n", opts.Name)
 	fmt.Fprintf(&b, "UnlockAllDLC=%s\r\n", unlock)
-	b.WriteString("\r\n[EOS]\r\nDeviceIdAuth=true\r\n")
+	if steamNative {
+		b.WriteString("; steam-native: no EOS SDK in this game. The loader masks\r\n")
+		b.WriteString("; the appid to FakeAppId and the game rides the real Steam\r\n")
+		b.WriteString("; client for matchmaking (keep Steam running).\r\n")
+		b.WriteString("SteamNative=true\r\n")
+	} else {
+		b.WriteString("\r\n[EOS]\r\nDeviceIdAuth=true\r\n")
+	}
 
 	return os.WriteFile(path, []byte(b.String()), 0o644)
 }
