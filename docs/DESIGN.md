@@ -172,9 +172,66 @@ steam-native mode (winmm + ini with `[Main] SteamNative=true`).
   real Steam running: Steam shows "in-game: Spacewar", in-game name = real
   Steam persona, lobby created, friend invites work, Shift+Tab overlay opens.
   No file of the game was modified except adding winmm.dll + ayame.ini.
+- LOCKDOWN Protocol (2780980, UE5): existing OnlineFix release → `ayame
+  install` over it (OnlineFix's winmm backed up, OnlineFix64.dll inert) →
+  launch → **joined a real public session live**. Notably `EOS_Connect_Login`
+  never fired: sessions run on the game's own servers and the bundled EOS SDK
+  stays unused; the winmm loader (Spacewar mask + RestartAppIfNecessary
+  suppression) alone is what lets the game go online. The Steam API comes from
+  the engine plugin's redistributable steam_api64.dll, resolved via the UE
+  plugin DLL path — the exe-dir winmm still intercepts fine. EOS DLL itself
+  lives in `Engine\Binaries\Win64\` (not next to the exe); install handles
+  both locations, and all logs collect next to the exe by design.
+  Follow-up A/B on the same title: a re-download with lua-dl layered Goldberg
+  over the redist steam_api64, and the lobby list + Steam persona name
+  regressed (Goldberg severs the real client entirely — no Spacewar session,
+  no real identity). Restoring the original steam_api64.dll brought both
+  back: lobby list populated, real persona name, Spacewar shown in Steam.
+  Lesson: when a game's multiplayer rides the real Steam client and EOS is
+  unused, Goldberg is a net negative — loader + real steam_api is the stack.
+
+## Agent workflow
+
+ayame is designed to be driven without tribal knowledge:
+
+1. `ayame install <dir> --appid N` — auto-detects the mode (EOS DLLs present
+   → eos; absent → steam-native) and patches Goldberg's LAN hooks if present.
+2. Launch the game once with the real Steam client running.
+3. `ayame diagnose <dir> --json` — machine-readable facts: install state, the
+   Steam layer (goldberg vs pristine), and what the runtime log proves
+   (loader attached, EOS proxy attached, restart hook applied, Connect_Login
+   fired with credential type, DeviceID login name), plus branched advice.
+
+Branching rules an agent can apply directly:
+- `connect-login=true` + login name → the EOS multiplayer path is live.
+- `connect-login=false` with proxy attached → EOS is unused by this game;
+  the Spacewar mask alone carries multiplayer (LOCKDOWN-class).
+- `goldberg` layer + `pristine_steam_api_baks` present → prefer restoring
+  the pristine steam_api (real persona, real lobbies); Goldberg only helps
+  LAN/offline scenarios.
+- `user_steam_error`-style backend rejections in game logs → backend-gated,
+  out of scope (see Among Us 3D).
+
+## Known limitation: backend-gated games
+
+Among Us 3D (3168600, Unity IL2CPP, EOS 1.19 + libtox + Photon Voice):
+the EOS side works completely — proxy attaches, `Connect_Login` intercepted
+(cred type 18), DeviceID login succeeds, Stomp connected, ToxMod initialized.
+But before multiplayer the game posts its Steam session ticket to its own API
+(`backend.innersloth.com/.../steam-get-user-info`) which validates it
+server-side against real Steam and issues the Photon Voice auth token. A fake
+ticket gets `400 user_steam_error 3404`; the game then hard-blocks on
+"Failed Connection: Photon Authentication". Nothing local can satisfy a check
+performed on the publisher's servers, and the Photon token is issued/verified
+by their infra too — the same reason OnlineFix doesn't support such titles.
+
+Rule of thumb: if a game's multiplayer needs its **own backend** to vouch for
+the Steam identity (receipt/inventory/voice-token endpoints), it is out of
+scope. Same class: other Innersloth titles.
 
 ## Out of scope (v1)
 
+- Backend-gated games (see above).
 - 32-bit games (all reference targets are x64).
 - Anti-cheat titles (EAC/BattlEye will reject the device identity).
 

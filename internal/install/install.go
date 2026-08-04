@@ -270,6 +270,11 @@ func FindNamedExport(root, name string) ([]string, error) {
 	return findNamed(root, name)
 }
 
+// FileContainsExport exposes fileContains for sibling packages (diagnose).
+func FileContainsExport(path, needle string) bool {
+	return fileContains(path, needle)
+}
+
 func findNamed(root, name string) ([]string, error) {
 	var out []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -277,6 +282,9 @@ func findNamed(root, name string) ([]string, error) {
 			return nil // soft-walk: skip unreadable entries
 		}
 		if d.IsDir() {
+			if strings.EqualFold(d.Name(), name) {
+				out = append(out, path)
+			}
 			if skipDirs[strings.ToLower(d.Name())] {
 				return filepath.SkipDir
 			}

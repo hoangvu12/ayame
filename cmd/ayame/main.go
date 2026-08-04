@@ -5,19 +5,22 @@
 //	ayame install <gameDir> [--appid N] [--language S] [--unlock-dlc] [--force-ini]
 //	ayame uninstall <gameDir>
 //	ayame status <gameDir>
+//	ayame diagnose <gameDir> [--json]
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/hoangvu12/ayame/internal/diagnose"
 	"github.com/hoangvu12/ayame/internal/install"
 )
 
-const version = "0.1.0"
+const version = "0.3.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -32,6 +35,8 @@ func main() {
 		cmdUninstall(os.Args[2:])
 	case "status":
 		cmdStatus(os.Args[2:])
+	case "diagnose":
+		cmdDiagnose(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println("ayame", version)
 	case "help", "--help", "-h":
@@ -55,6 +60,9 @@ Commands:
     --force-ini         Overwrite an existing ayame.ini
   uninstall <gameDir>   Restore the original EOS SDK and remove ayame files
   status <gameDir>      Show whether the fix is installed
+  diagnose <gameDir>    Post-launch evidence: what ran, EOS login outcome,
+                        Steam layer, and advice on the next step
+    --json              Machine-readable output (for agents)
   version               Print version
 `)
 }
@@ -149,10 +157,56 @@ func cmdStatus(args []string) {
 	}
 }
 
+func cmdDiagnose(args []string) {
+	fs := flag.NewFlagSet("diagnose", flag.ExitOnError)
+	jsonOut := fs.Bool("json", false, "machine-readable output")
+	fs.Parse(reorderFlagsFirst(args))
+	if fs.NArg() != 1 {
+		fmt.Fprintln(os.Stderr, "usage: ayame diagnose <gameDir> [--json]")
+		os.Exit(2)
+	}
+
+	rep, err := diagnose.Run(fs.Arg(0))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "diagnose failed:", err)
+		os.Exit(1)
+	}
+
+	if *jsonOut {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(rep); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
+
+	fmt.Printf("game dir    : %s\n", rep.GameDir)
+	fmt.Printf("install     : %s\n", rep.InstallState)
+	fmt.Printf("steam layer : %s\n", rep.SteamLayer)
+	for _, l := range rep.Logs {
+		fmt.Printf("log         : %s\n", l.Path)
+		fmt.Printf("  loader=%v eos-proxy=%v restart-hook=%v connect-login=%v\n",
+			l.LoaderAttached, l.ProxyAttached, l.RestartHookApplied, l.ConnectLoginIntercepted)
+		if l.CredType != 0 {
+			fmt.Printf("  cred type=%d\n", l.CredType)
+		}
+		if l.DeviceIDLoginAs != "" {
+			fmt.Printf("  device-id login as %q\n", l.DeviceIDLoginAs)
+		}
+		for _, e := range l.Errors {
+			fmt.Printf("  error: %s\n", e)
+		}
+	}
+	for _, a := range rep.Advice {
+		fmt.Printf("advice      : %s\n", a)
+	}
+}
+
 // reorderFlagsFirst moves flag arguments (--x, -x, --x=v) ahead of
 // positional arguments so the user can write `ayame install <dir> --appid N`.
 func reorderFlagsFirst(args []string) []string {
-	boolFlags := map[string]bool{"unlock-dlc": true, "force-ini": true}
+	boolFlags := map[string]bool{"unlock-dlc": true, "force-ini": true, "json": true}
 	var flags, positional []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]

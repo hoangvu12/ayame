@@ -113,6 +113,13 @@ Remove again with:
 dist\ayame.exe uninstall "C:\path\to\game"
 ```
 
+And after a launch, get machine-readable evidence of what ran and what to do
+next:
+
+```bat
+dist\ayame.exe diagnose "C:\path\to\game" --json
+```
+
 ### Goldberg users
 
 If the game's Steam layer is Goldberg (gbe_fork, e.g. installed by lua-dl),
