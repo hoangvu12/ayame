@@ -1,0 +1,7 @@
+/build/
+/dist/
+*.obj
+*.exp
+*.lib
+*.user
+internal/payloads/*.dll

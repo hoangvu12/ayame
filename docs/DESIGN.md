@@ -1,0 +1,120 @@
+# ayame design notes
+
+## Goal
+
+Replicate what the `OnlineFix` patches from online-fix.me do, but as
+open-source, self-hosted artifacts that a downloader like `lua-dl` can generate
+offline — no dependency on the site's cookie-gated downloads.
+
+Observed OnlineFix layout per game (studied from real installs):
+
+| File | Role |
+|---|---|
+| `winmm.dll` (~500 KB, identical across games) | generic loader proxy |
+| `OnlineFix64.dll` (~13 MB, per game) | Steam API emulator/hooks |
+| `OnlineFix.ini` | `RealAppId`, `FakeAppId=480`, `[Interfaces]`, `[Hashes]`, `[EOSAuthWrapper] DeviceIdAuth=true` |
+| `EOSSDK-Win64-Shipping.dll` | EOS proxy (only in EOS games) |
+| `EOSSDK-Win64-Shipping.of` | the game's original EOS SDK, renamed |
+
+## The actual multiplayer trick
+
+For EOS-based games the load-bearing step is small and generic:
+
+1. Games log into EOS with `EOS_Connect_Login`, normally passing
+   `EOS_ECT_STEAM_SESSION_TICKET` credentials (a Steam auth ticket validated
+   against Epic's backend). Without a valid owned-game ticket this fails.
+2. Epic also accepts `EOS_ECT_DEVICEID_ACCESS_TOKEN` (10) — an anonymous,
+   device-bound identity created via `EOS_Connect_CreateDeviceId`. No Steam
+   ticket, no Epic account required.
+3. So: intercept `EOS_Connect_Login`, discard the Steam credential, create the
+   device id, and log in with DeviceID + a display name. All lobby/session/P2P
+   traffic still runs through Epic's real backend, so cross-play with legit
+   players works.
+
+This is exactly what eos-proxy ships and what ReFix/OnlineFix's EOS component
+does (see the `[EOSAuthWrapper] DeviceIdAuth=true` ini key).
+
+## Architecture decisions
+
+### Drop-in proxy over injection
+
+We replace `EOSSDK-Win64-Shipping.dll` (renaming the original to `.of`) rather
+than injecting into the process. Reasons:
+
+- No injector binary, no AV-alarms from remote thread creation.
+- The proxy is present before any game code runs; no race hooking exports.
+- Uninstall is a clean file swap.
+
+The same pattern covers the loader: a `winmm.dll` proxy next to the exe loads
+with the process on both Unity and UE games.
+
+### Generated forwarding tables
+
+EOS SDK exports change between versions (679 → 746 across the builds we
+sampled). Hand-maintained export lists rot. Instead `tools/genexports` reads
+the export directory of one or more real SDK DLLs, merges them into a master
+list, and emits:
+
+- `fwd_stub.asm` — one MASM `jmp [g_ayame_procs + i*8]` trampoline per export
+- `exports.def` — maps each public EOS name to its trampoline
+- `exports.h` — name table used to `GetProcAddress` the originals at runtime
+
+Slots whose export doesn't exist in the game's particular SDK build keep a
+fallback stub (returns `EOS_NOT_FOUND`) instead of a NULL pointer, so a superset
+proxy never crashes a game built against an older SDK.
+
+Forwarding is a tail-jump through a pointer table — no stack manipulation, so
+it works for every calling signature without knowing it.
+
+### Intercept set
+
+Only functions where behavior must change are intercepted (everything else
+forwards untouched):
+
+- `EOS_Connect_Login` — credential swap (the fix itself)
+- `EOS_Connect_CreateDeviceId` / `DeleteDeviceId` — pass-through hooks kept for
+  logging and future fallback handling
+- `EOS_Lobby_CreateLobby` / `JoinLobby` / `JoinLobbyById` — clear
+  `bPresenceEnabled` (requires an Epic account)
+- `EOS_IntegratedPlatformOptionsContainer_Add` — stubbed success; registering
+  Steam as an integrated platform would make the SDK mint Steam-ticket logins
+  behind our back
+- `EOS_Initialize` / `EOS_Shutdown` — pass-through used as the init trigger
+
+### ApiVersion discipline
+
+EOS structs grow by appending fields; options carry an `ApiVersion`. We never
+invent versions for options the game built — only the credential type pointer
+is swapped, and the one struct we construct (`EOS_Connect_CreateDeviceIdOptions`)
+uses `EOS_CONNECT_CREATEDEVICEID_API_LATEST`. Struct mirrors only declare
+fields up to the last one we touch, which is safe under the append-only ABI.
+
+### Steam side (winmm.dll)
+
+EOS DeviceID login removes the need for Steam entirely on the EOS path, but
+games often still initialize Steamworks. The winmm loader:
+
+- sets `SteamAppId`/`SteamGameId` to the mask appid (default 480, Spacewar,
+  which every Steam account owns) and `SteamOverlayGameId` to the real appid;
+- patches `SteamAPI_RestartAppIfNecessary` to return false, preventing the
+  restart loop when the mask appid differs from the real one.
+
+This keeps the single-player path and achievements working through the real
+Steam client while multiplayer flows through EOS DeviceID.
+
+## Threat model / failure modes
+
+- **Original missing** (`_of` deleted): every forward hits the fallback stub;
+  the proxy logs a fatal line and the game degrades instead of hard-crashing.
+- **New SDK export the master list lacks**: the game wouldn't have loaded the
+  original either; regenerate the table from the new DLL.
+- **Loader-lock safety**: all heavy init (loading the `.of`, resolving exports)
+  happens on a worker thread or via `InitOnceExecuteOnce` on first use;
+  `DllMain` only seeds the pointer table and spawns the thread.
+
+## Out of scope for v1
+
+- Games whose multiplayer is Steam-native (Steam matchmaking, not EOS) — those
+  need the heavier OnlineFix64-style Steam emulation or Goldberg.
+- 32-bit games (all reference targets are x64).
+- Anti-cheat titles (EAC/BattlEye will reject the device identity).
