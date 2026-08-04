@@ -96,7 +96,39 @@ func Install(gameDir string, opts Options) (*Report, error) {
 		}
 	}
 
+	// Goldberg (gbe_fork) detours connect()/sendto()/WSAConnect() process-wide
+	// for its LAN emulation, which makes EOS's HTTPS to Epic fail with
+	// connection-refused. Its configs.main.ini opt-out is disable_lan_only=1.
+	for _, target := range eosTargets {
+		patchGoldbergConfig(filepath.Dir(target))
+	}
+
 	return rep, nil
+}
+
+// patchGoldbergConfig adds disable_lan_only=1 to a gbe_fork steam_settings
+// config sitting next to an EOS DLL (Goldberg installs its settings beside
+// the steam_api it replaced). Missing files/folders are ignored — this only
+// applies when Goldberg is present.
+func patchGoldbergConfig(dir string) {
+	cfg := filepath.Join(dir, "steam_settings", "configs.main.ini")
+	data, err := os.ReadFile(cfg)
+	if err != nil {
+		return
+	}
+	if strings.Contains(string(data), "disable_lan_only") {
+		return
+	}
+	out := string(data)
+	if strings.Contains(out, "[main::connectivity]") {
+		out = strings.Replace(out, "[main::connectivity]",
+			"[main::connectivity]\r\ndisable_lan_only=1", 1)
+	} else {
+		out += "\r\n[main::connectivity]\r\ndisable_lan_only=1\r\n"
+	}
+	if err := os.WriteFile(cfg, []byte(out), 0o644); err == nil {
+		fmt.Printf("  goldberg    : disable_lan_only=1 added to %s\n", cfg)
+	}
 }
 
 func installEosProxy(dllPath string) error {

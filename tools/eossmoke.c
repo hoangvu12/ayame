@@ -2,6 +2,7 @@
 // to prove the forwarding table resolves against the original SDK.
 #include <windows.h>
 #include <stdio.h>
+#include <string.h>
 
 typedef const char *(*EResultToString_t)(int);
 typedef int (*Initialize_t)(const void *);
@@ -65,6 +66,15 @@ int main(int argc, char **argv) {
         return 1;
     }
     printf("EOS_EResult_ToString(0) = \"%s\" (expect EOS_Success)\n", s);
+
+    // Dump the SDK's own names for result codes (diagnostic mode).
+    if (argc > 2 && strcmp(argv[2], "--codes") == 0) {
+        for (int c = 1; c <= 40; c++) {
+            const char *n = to_string(c);
+            if (n && (uintptr_t)n > 0x10000) printf("code %2d = %s\n", c, n);
+        }
+        return 0;
+    }
 
     // Bad ApiVersion -> the real SDK rejects it (any nonzero EOS_EResult;
     // the exact code varies by SDK version).

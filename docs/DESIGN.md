@@ -112,9 +112,38 @@ Steam client while multiplayer flows through EOS DeviceID.
   happens on a worker thread or via `InitOnceExecuteOnce` on first use;
   `DllMain` only seeds the pointer table and spawns the thread.
 
+## Goldberg (gbe_fork) compatibility — required when used with lua-dl
+
+lua-dl installs Goldberg as the Steam layer. gbe_fork's `base.cpp` installs
+process-wide Detours on `connect`, `sendto`, `WSAConnect` and
+`WinHttpConnect` for its LAN emulation ("lan only" mode, default on), which
+makes the EOS SDK's HTTPS to `api.epicgames.dev` fail with
+`EOS_NoConnection` (libcurl error 7, immediate TCP refuse). Verified on Big
+Walk (EOS 1.19): with the hooks active every EOS request dies; with
+`[main::connectivity] disable_lan_only=1` in `steam_settings/configs.main.ini`
+the SDK reaches Epic and the DeviceID login succeeds.
+
+`ayame install` therefore patches that setting automatically whenever a
+`steam_settings/configs.main.ini` sits next to an EOS DLL it installs.
+
+This is also why every reference project avoids Goldberg: OnlineFix hooks the
+real steam_api64.dll, LumaCore/ReFix-proxy use the real Steam client. None of
+them place a network hooking emulator in the process.
+
+## Verified in the wild
+
+- Big Walk (1478500, Unity IL2CPP, EOS 1.19, PlayEveryWare plugin):
+  lua-dl depot download → Goldberg → ayame install → launch:
+  `EOS Connect login succeeded`, Stomp messaging connected,
+  `Current Auth Status: LoggedIn`, display name from ayame.ini.
+- MECCHA CHAMELEON layout: install/uninstall round-trip restores the
+  original SDK byte-exact.
+
 ## Out of scope for v1
 
 - Games whose multiplayer is Steam-native (Steam matchmaking, not EOS) — those
-  need the heavier OnlineFix64-style Steam emulation or Goldberg.
+  need the heavier OnlineFix64-style Steam emulation.
 - 32-bit games (all reference targets are x64).
 - Anti-cheat titles (EAC/BattlEye will reject the device identity).
+
+

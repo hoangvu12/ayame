@@ -104,6 +104,14 @@ Remove again with:
 dist\ayame.exe uninstall "C:\path\to\game"
 ```
 
+### Goldberg users
+
+If the game's Steam layer is Goldberg (gbe_fork, e.g. installed by lua-dl),
+its default LAN hooks (`connect`/`sendto`/…) break EOS's HTTPS to Epic.
+`ayame install` detects `steam_settings/configs.main.ini` next to the EOS DLL
+and adds `disable_lan_only=1` automatically. Online-fix style setups that use
+the real Steam client don't need this.
+
 ## Regenerating the export tables
 
 Only needed when supporting a new EOS SDK build. Provide one or more real
