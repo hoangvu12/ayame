@@ -69,6 +69,10 @@ Run all commands from `C:\Users\ADMIN\Desktop\games` unless stated otherwise.
    publisher backend rejecting the Steam identity (e.g. Innersloth
    `user_steam_error 3404`, "Failed Connection: Photon Authentication"),
    no local fix works — the check runs on their servers. Say so and stop.
+   Verified exception-pattern: for Photon-gated titles, OnlineFix runs its
+   own Photon-compatible servers + per-game Harmony auth patch (see
+   case-studies.md, Crime Simulator 2737070); that is operated
+   infrastructure, not something ayame's drop-in DLLs can replicate.
 4. All ayame logs collect in `ayame.log` next to the game **exe** (by design).
    Unity game logs: `%USERPROFILE%\AppData\LocalLow\<Studio>\<Game>\Player.log`.
 5. Never paste or commit the baked online-fix.me credentials inside lua-dl
